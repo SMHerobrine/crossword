@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Crossword Maker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .crossword-grid {
+            display: grid;
+            border: 2px solid #1f2937;
+            background-color: #1f2937;
+            gap: 1px;
+            /* Make grid shrink to its content width so it can be scrolled inside a wrapper */
+            width: max-content;
+            grid-auto-rows: 32px;
+        }
+        .grid-cell {
+            width: 32px;
+            height: 32px;
+            background-color: white;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 500;
+            text-transform: uppercase;
+            font-size: 16px;
+        }
+        .grid-cell.empty {
+            background-color: #1f2937;
+        }
+        .cell-number {
+            position: absolute;
+            top: 1px;
+            left: 2px;
+            font-size: 9px;
+            font-weight: 600;
+            color: #4b5563;
+        }
+        /* Wrapper around the grid to provide scrollbars for large puzzles */
+        #crossword-grid-wrapper {
+            overflow: auto;
+            -webkit-overflow-scrolling: touch;
+            padding: 8px; /* small padding so grid isn't flush to the wrapper */
+        }
+        /* Hide arrows on number inputs */
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+    <div class="container mx-auto p-4 md:p-8 max-w-7xl">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-900">Simple Crossword Maker</h1>
+            <p class="text-gray-600 mt-2">Enter your words and clues, and let us build the puzzle for you.</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Controls Column -->
+            <div class="lg:col-span-1 bg-white p-6 rounded-xl shadow-lg">
+                <h2 class="text-2xl font-semibold mb-4 border-b pb-2">1. Add Words & Clues</h2>
+                <button id="add-word-btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+                    + Add Another Word
+                </button>
+                <div id="word-list" class="space-y-3 mb-4 max-h-96 overflow-y-auto pr-2">
+                    <!-- Word/Clue pairs will be added here -->
+                </div>
+                <!-- Paste words textarea: one word per line -->
+                <div class="mt-2">
+                    <label for="paste-words" class="block text-sm font-medium text-gray-700 mb-1">Paste words (one per line)</label>
+                    <textarea id="paste-words" rows="4" class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="One word per line\nExample:\nHTML\nCSS\nJAVASCRIPT"></textarea>
+                    <div class="flex space-x-2 mt-2">
+                        <button id="import-btn" class="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">Import List</button>
+                        <button id="clear-list-btn" class="flex-1 bg-red-100 hover:bg-red-200 text-red-700 font-bold py-2 px-4 rounded-lg transition-colors">Clear</button>
+                    </div>
+                </div>
+                <div class="mt-6">
+                    <h2 class="text-2xl font-semibold mb-4 border-b pb-2">2. Generate Puzzle</h2>
+                    <button id="generate-btn" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-lg transition-colors text-lg">
+                        Generate Crossword
+                    </button>
+                </div>
+                
+                 <!-- Dynamic controls shown after generation -->
+                <div id="post-generation-controls" class="mt-6 hidden">
+                    <h2 class="text-2xl font-semibold mb-4 border-b pb-2">3. Options & Export</h2>
+                    <div class="space-y-4">
+                        <button id="refresh-btn" class="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+                            Try New Layout
+                        </button>
+                        <div class="flex items-center justify-between bg-gray-100 p-3 rounded-lg">
+                            <label for="solution-toggle" class="font-medium">Show Solution</label>
+                            <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                                <input type="checkbox" name="solution-toggle" id="solution-toggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"/>
+                                <label for="solution-toggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+                            </div>
+                        </div>
+                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <button id="download-png-btn" class="w-full bg-gray-700 hover:bg-gray-800 text-white font-bold py-2 px-4 rounded-lg transition-colors">Download PNG</button>
+                            <button id="download-pdf-btn" class="w-full bg-gray-700 hover:bg-gray-800 text-white font-bold py-2 px-4 rounded-lg transition-colors">Download PDF</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="message-box" class="mt-4 text-center text-red-600 font-medium"></div>
+            </div>
+
+            <!-- Crossword Display Column -->
+            <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-lg flex flex-col justify-center min-h-[400px]" style="overflow: scroll;">
+                 <div id="printable-area" class="bg-white">
+                    <div id="crossword-container" class="flex flex-col">
+                        <div id="crossword-grid-wrapper" class="mb-6">
+                            <!-- Grid will be rendered here -->
+                        </div>
+                        <div id="clues-container" class="w-full max-w-2xl text-sm">
+                            <!-- Clues will be rendered here -->
+                        </div>
+                    </div>
+                </div>
+                <div id="placeholder" class="text-center text-gray-500">
+                    <p class="text-lg">Your crossword puzzle will appear here once generated.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Third-party libraries ---
+        const { jsPDF } = window.jspdf;
+
+        // --- DOM Elements ---
+        const wordListContainer = document.getElementById('word-list');
+        const addWordBtn = document.getElementById('add-word-btn');
+        const generateBtn = document.getElementById('generate-btn');
+        const refreshBtn = document.getElementById('refresh-btn');
+        const solutionToggle = document.getElementById('solution-toggle');
+        const downloadPngBtn = document.getElementById('download-png-btn');
+        const downloadPdfBtn = document.getElementById('download-pdf-btn');
+        const postGenerationControls = document.getElementById('post-generation-controls');
+        const gridWrapper = document.getElementById('crossword-grid-wrapper');
+        const cluesContainer = document.getElementById('clues-container');
+        const placeholder = document.getElementById('placeholder');
+        const messageBox = document.getElementById('message-box');
+
+        // --- State ---
+        let wordEntries = [];
+        let generatedLayout = null;
+
+        // --- Functions ---
+
+        /**
+         * Adds a new word/clue input pair to the DOM.
+         */
+        const addWordInput = (word = '', clue = '') => {
+            const entryId = `word-entry-${wordListContainer.children.length}`;
+            const div = document.createElement('div');
+            div.className = 'flex items-center space-x-2 bg-gray-50 p-2 rounded-md';
+            div.id = entryId;
+            div.innerHTML = `
+                <input type="text" placeholder="Word" value="${word}" class="word-input flex-1 p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500" style="text-transform:uppercase">
+                <input type="text" placeholder="Clue (optional)" value="${clue}" class="clue-input flex-1 p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <button class="remove-word-btn text-red-500 hover:text-red-700 font-bold text-xl p-1" data-id="${entryId}">&times;</button>
+            `;
+            wordListContainer.appendChild(div);
+
+            div.querySelector('.remove-word-btn').addEventListener('click', () => {
+                div.remove();
+            });
+        };
+
+        // Import words from textarea (one per line)
+        const importBtn = document.getElementById('import-btn');
+        const pasteWordsTextarea = document.getElementById('paste-words');
+        const clearListBtn = document.getElementById('clear-list-btn');
+
+        importBtn.addEventListener('click', () => {
+            const raw = pasteWordsTextarea.value || '';
+            const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+            if (lines.length === 0) {
+                showMessage('Paste at least one word (one per line) to import.');
+                return;
+            }
+            // Add each as a word input. Support optional inline clue using common separators.
+            lines.forEach(line => {
+                let wordPart = line;
+                let cluePart = '';
+
+                if (line.includes('|')) {
+                    [wordPart, cluePart] = line.split('|').map(s => s.trim());
+                } else if (line.includes(' - ')) {
+                    [wordPart, cluePart] = line.split(' - ').map(s => s.trim());
+                } else if (line.includes(':')) {
+                    [wordPart, cluePart] = line.split(':').map(s => s.trim());
+                } else if (line.includes('\t')) {
+                    [wordPart, cluePart] = line.split('\t').map(s => s.trim());
+                }
+
+                // sanitize word to letters only (including accented/Unicode letters) and uppercase
+                let sanitized = (wordPart || '').trim().toUpperCase();
+                // Remove anything that's not a Unicode letter
+                sanitized = sanitized.replace(/[^-\uFFFF\p{L}]/gu, '');
+                // Fallback simpler regex for environments that may not support \p{L}
+                if (!sanitized) {
+                    sanitized = (wordPart || '').trim().toUpperCase().replace(/[^A-ZÀ-ÖØ-öø-ÿ]/g, '');
+                }
+                if (sanitized) {
+                    addWordInput(sanitized, (cluePart || ''));
+                }
+            });
+            pasteWordsTextarea.value = '';
+            showMessage('');
+        });
+
+        clearListBtn.addEventListener('click', () => {
+            wordListContainer.innerHTML = '';
+            showMessage('');
+        });
+
+        /**
+         * Collects all words and clues from the input fields.
+         * @returns {Array} An array of {word, clue} objects.
+         */
+        const getWordsFromInputs = () => {
+            const words = [];
+            const wordInputs = document.querySelectorAll('.word-input');
+            const clueInputs = document.querySelectorAll('.clue-input');
+            let hasError = false;
+            
+            wordInputs.forEach((input, index) => {
+                // Preserve and accept Unicode letters (accents, umlauts, etc.)
+                const word = input.value.trim().toUpperCase().replace(/[^^\p{L}]/gu, '');
+                const clue = (clueInputs[index] && clueInputs[index].value.trim()) || '';
+                
+                input.value = word; // Update input with sanitized word
+
+                if (word) {
+                    words.push({ word, clue });
+                    input.classList.remove('border-red-500');
+                    if (clueInputs[index]) clueInputs[index].classList.remove('border-red-500');
+                } else if (input.value || (clueInputs[index] && clueInputs[index].value)) {
+                    // If one field is filled but word is empty, mark as error
+                    input.classList.add('border-red-500');
+                    if (clueInputs[index]) clueInputs[index].classList.remove('border-red-500');
+                    hasError = true;
+                }
+            });
+            
+            if (hasError) {
+                 showMessage('Please ensure every clue is attached to a valid word (words are required).');
+                 return null;
+            }
+            if(words.length < 2){
+                showMessage('Please enter at least two words.');
+                return null;
+            }
+
+            showMessage(''); // Clear message
+            return words;
+        };
+        
+        const showMessage = (msg) => {
+            messageBox.textContent = msg;
+        };
+
+        /**
+         * The core crossword generation logic.
+         * @param {Array} words - Array of {word, clue} objects.
+         * @returns {Object|null} The generated layout or null if it fails.
+         */
+        const generateLayout = (words) => {
+            const MAX_GRID_SIZE = 50;
+            const MAX_ATTEMPTS = 10;
+            
+            // Convert words to include a letters array (Array.from handles Unicode graphemes)
+            let workWords = words.map(w => ({ ...w, letters: Array.from(w.word) }));
+            // Sort words from longest to shortest for better placement (by letter count)
+            workWords.sort((a, b) => b.letters.length - a.letters.length);
+
+            for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+                let grid = Array(MAX_GRID_SIZE).fill(null).map(() => Array(MAX_GRID_SIZE).fill(null));
+                let placedWords = [];
+
+                // Place the first word in the center
+                const firstWord = workWords[0];
+                const startRow = Math.floor(MAX_GRID_SIZE / 2);
+                const startCol = Math.floor((MAX_GRID_SIZE - firstWord.word.length) / 2);
+                const firstWordData = { ...firstWord, row: startRow, col: startCol, direction: 'across' };
+                
+                placeWordOnGrid(grid, firstWordData);
+                placedWords.push(firstWordData);
+
+                // Try to place the rest of the words
+                for (let i = 1; i < workWords.length; i++) {
+                    const wordToPlace = workWords[i];
+                    let bestPlacement = null;
+
+                    // Find all possible placements
+                    for (const placed of placedWords) {
+                        for (let j = 0; j < wordToPlace.letters.length; j++) {
+                            for (let k = 0; k < placed.letters.length; k++) {
+                                if (wordToPlace.letters[j] === placed.letters[k]) {
+                                    const newDirection = placed.direction === 'across' ? 'down' : 'across';
+                                    let newRow, newCol;
+                                    
+                                    if (newDirection === 'across') {
+                                        newRow = placed.row + k;
+                                        newCol = placed.col - j;
+                                    } else {
+                                        newRow = placed.row - j;
+                                        newCol = placed.col + k;
+                                    }
+
+                                    const placement = { ...wordToPlace, row: newRow, col: newCol, direction: newDirection };
+
+                                    if (canPlaceWord(grid, placement)) {
+                                        // Simple heuristic: just take the first valid one for now
+                                        bestPlacement = placement;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (bestPlacement) break;
+                        }
+                        if (bestPlacement) break;
+                    }
+                    
+                    if (bestPlacement) {
+                        placeWordOnGrid(grid, bestPlacement);
+                        placedWords.push(bestPlacement);
+                    }
+                }
+                
+                if (placedWords.length === workWords.length) {
+                    return { grid, placedWords }; // Success
+                }
+                
+                // Shuffle words for next attempt (except the first one)
+                workWords = [workWords[0], ...workWords.slice(1).sort(() => Math.random() - 0.5)];
+            }
+            
+            return null; // Failed to place all words
+        };
+
+        const placeWordOnGrid = (grid, wordData) => {
+            const letters = wordData.letters || Array.from(wordData.word);
+            for (let i = 0; i < letters.length; i++) {
+                if (wordData.direction === 'across') {
+                    grid[wordData.row][wordData.col + i] = letters[i];
+                } else {
+                    grid[wordData.row + i][wordData.col] = letters[i];
+                }
+            }
+        };
+
+        const canPlaceWord = (grid, wordData) => {
+            const letters = wordData.letters || Array.from(wordData.word);
+            const row = wordData.row;
+            const col = wordData.col;
+            const direction = wordData.direction;
+
+            // Bounds check
+            if (row < 0 || col < 0 ||
+                (direction === 'across' && col + letters.length > grid[0].length) ||
+                (direction === 'down' && row + letters.length > grid.length)) {
+                return false;
+            }
+
+            for (let i = 0; i < letters.length; i++) {
+                let r = row, c = col;
+                if (direction === 'across') {
+                    c += i;
+                } else {
+                    r += i;
+                }
+
+                const gridChar = grid[r][c];
+                const wordChar = letters[i];
+
+                // If cell is occupied, it must match the letter we want to place
+                if (gridChar && gridChar !== wordChar) {
+                    return false;
+                }
+
+                // Check for parallel words
+                if (!gridChar) { // Only check for new letter placements
+                    if (direction === 'across') {
+                        if ((grid[r - 1] && grid[r - 1][c]) || (grid[r + 1] && grid[r + 1][c])) return false;
+                    } else { // 'down'
+                        if (grid[r][c - 1] || grid[r][c + 1]) return false;
+                    }
+                }
+            }
+
+            // Check before/after the word
+            if(direction === 'across') {
+                if(grid[row][col-1] || grid[row][col+letters.length]) return false;
+            } else {
+                if((grid[row-1] && grid[row-1][col]) || (grid[row+letters.length] && grid[row+letters.length][col])) return false;
+            }
+
+            return true;
+        };
+
+        /**
+         * Renders the generated crossword grid and clues into the DOM.
+         * @param {Object} layout - The layout object from generateLayout.
+         */
+        const renderCrossword = (layout) => {
+            // 1. Trim the grid to fit the content
+            let minRow = Infinity, maxRow = -Infinity, minCol = Infinity, maxCol = -Infinity;
+            layout.placedWords.forEach(({ word, row, col, direction }) => {
+                minRow = Math.min(minRow, row);
+                maxRow = Math.max(maxRow, direction === 'down' ? row + word.length - 1 : row);
+                minCol = Math.min(minCol, col);
+                maxCol = Math.max(maxCol, direction === 'across' ? col + word.length - 1 : col);
+            });
+            
+            // Add padding
+            minRow = Math.max(0, minRow - 1);
+            maxRow = Math.min(layout.grid.length - 1, maxRow + 1);
+            minCol = Math.max(0, minCol - 1);
+            maxCol = Math.min(layout.grid[0].length - 1, maxCol + 1);
+
+            const height = maxRow - minRow + 1;
+            const width = maxCol - minCol + 1;
+            
+            const trimmedGrid = Array(height).fill(null).map((_, r) =>
+                Array(width).fill(null).map((_, c) => layout.grid[minRow + r][minCol + c])
+            );
+
+            // 2. Assign clue numbers
+            let clueNumber = 1;
+            const wordStartCells = {};
+            const acrossClues = [];
+            const downClues = [];
+
+            // Sort by position to get a logical clue order
+            const sortedWords = [...layout.placedWords].sort((a, b) => {
+                if (a.row !== b.row) return a.row - b.row;
+                return a.col - b.col;
+            });
+            
+            sortedWords.forEach(wordData => {
+                const r = wordData.row - minRow;
+                const c = wordData.col - minCol;
+                const cellKey = `${r},${c}`;
+                
+                if (!wordStartCells[cellKey]) {
+                    wordStartCells[cellKey] = clueNumber;
+                    clueNumber++;
+                }
+
+                const currentClueNumber = wordStartCells[cellKey];
+                if (wordData.direction === 'across') {
+                    acrossClues.push({ number: currentClueNumber, text: wordData.clue });
+                } else {
+                    downClues.push({ number: currentClueNumber, text: wordData.clue });
+                }
+            });
+
+            // 3. Render Grid
+            gridWrapper.innerHTML = '';
+            const gridEl = document.createElement('div');
+            gridEl.className = 'crossword-grid';
+            // Each cell is 32px wide; use fixed columns so large grids produce scrollbars instead of shrinking
+            gridEl.style.gridTemplateColumns = `repeat(${width}, 32px)`;
+            gridEl.style.gridAutoRows = '32px';
+            
+            for(let r=0; r < height; r++) {
+                for(let c=0; c < width; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'grid-cell';
+                    const letter = trimmedGrid[r][c];
+
+                    if (letter) {
+                        // Escape the letter when injecting into HTML by using textContent on a temp element
+                        const span = document.createElement('span');
+                        span.className = 'cell-letter hidden';
+                        span.textContent = letter;
+                        cell.appendChild(span);
+                        const cellKey = `${r},${c}`;
+                        if (wordStartCells[cellKey]) {
+                            const num = document.createElement('span');
+                            num.className = 'cell-number';
+                            num.textContent = wordStartCells[cellKey];
+                            cell.appendChild(num);
+                        }
+                    } else {
+                        cell.classList.add('empty');
+                    }
+                    gridEl.appendChild(cell);
+                }
+            }
+            gridWrapper.appendChild(gridEl);
+
+            // 4. Render Clues
+            cluesContainer.innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+                    <div>
+                        <h3 class="font-bold text-lg mb-2 border-b">ACROSS</h3>
+                        <ul class="space-y-1">${acrossClues.map(c => `<li><strong>${c.number}.</strong> ${c.text}</li>`).join('')}</ul>
+                    </div>
+                     <div>
+                        <h3 class="font-bold text-lg mb-2 border-b">DOWN</h3>
+                        <ul class="space-y-1">${downClues.map(c => `<li><strong>${c.number}.</strong> ${c.text}</li>`).join('')}</ul>
+                    </div>
+                </div>
+            `;
+            
+            placeholder.classList.add('hidden');
+            postGenerationControls.classList.remove('hidden');
+            solutionToggle.checked = false;
+        };
+        
+        const handleGenerate = () => {
+            wordEntries = getWordsFromInputs();
+            if (!wordEntries) return;
+
+            generatedLayout = generateLayout(wordEntries);
+
+            if (generatedLayout) {
+                renderCrossword(generatedLayout);
+                // Save the words and layout to localStorage so it can be restored later
+                try {
+                    saveStateToStorage(wordEntries, generatedLayout);
+                } catch (e) {
+                    console.warn('Failed to save generated crossword', e);
+                }
+            } else {
+                showMessage("Could not fit all words. Try removing some or using different words.");
+            }
+        };
+
+        const toggleSolution = (show) => {
+            const letters = document.querySelectorAll('.cell-letter');
+            letters.forEach(letter => {
+                if (show) {
+                    letter.classList.remove('hidden');
+                } else {
+                    letter.classList.add('hidden');
+                }
+            });
+        };
+        
+        const downloadAs = async (format) => {
+            const isSolutionVisible = solutionToggle.checked;
+
+            const printableArea = document.getElementById('printable-area');
+            
+            // Create a properly sized clone for export
+            const createExportClone = () => {
+                const clone = printableArea.cloneNode(true);
+                
+                // Ensure letters visibility in the clone matches the current toggle
+                const letters = clone.querySelectorAll('.cell-letter');
+                if (isSolutionVisible) {
+                    letters.forEach(l => l.classList.remove('hidden'));
+                } else {
+                    letters.forEach(l => l.classList.add('hidden'));
+                }
+
+                // Create wrapper for the clone
+                const wrapper = document.createElement('div');
+                wrapper.style.position = 'fixed';
+                wrapper.style.left = '-9999px';
+                wrapper.style.top = '0';
+                wrapper.style.background = '#ffffff';
+                wrapper.style.padding = '20px';
+                wrapper.style.boxSizing = 'border-box';
+                
+                // Reset any constraints on the clone and its children
+                clone.style.width = 'auto';
+                clone.style.height = 'auto';
+                clone.style.maxWidth = 'none';
+                clone.style.maxHeight = 'none';
+                clone.style.overflow = 'visible';
+                
+                // Ensure the crossword container expands fully
+                const crosswordContainer = clone.querySelector('#crossword-container');
+                if (crosswordContainer) {
+                    crosswordContainer.style.width = 'auto';
+                    crosswordContainer.style.height = 'auto';
+                    crosswordContainer.style.maxWidth = 'none';
+                    crosswordContainer.style.maxHeight = 'none';
+                    crosswordContainer.style.overflow = 'visible';
+                }
+                
+                // Ensure grid wrapper expands fully
+                const gridWrapper = clone.querySelector('#crossword-grid-wrapper');
+                if (gridWrapper) {
+                    gridWrapper.style.overflow = 'visible';
+                    gridWrapper.style.width = 'auto';
+                    gridWrapper.style.height = 'auto';
+                }
+                
+                // Ensure the grid itself maintains its natural size
+                const grid = clone.querySelector('.crossword-grid');
+                if (grid) {
+                    grid.style.width = 'max-content';
+                    grid.style.height = 'auto';
+                }
+                
+                // Ensure clues container expands fully
+                const cluesContainer = clone.querySelector('#clues-container');
+                if (cluesContainer) {
+                    cluesContainer.style.width = 'auto';
+                    cluesContainer.style.height = 'auto';
+                    cluesContainer.style.maxWidth = 'none';
+                }
+
+                wrapper.appendChild(clone);
+                document.body.appendChild(wrapper);
+                
+                return wrapper;
+            };
+
+            const exportWrapper = createExportClone();
+            const cloneElement = exportWrapper.querySelector('#printable-area');
+
+            try {
+                const canvas = await html2canvas(cloneElement, {
+                    scale: 2,
+                    backgroundColor: '#ffffff',
+                    useCORS: true,
+                    logging: false,
+                    width: cloneElement.scrollWidth,
+                    height: cloneElement.scrollHeight,
+                    onclone: (clonedDoc) => {
+                        // Ensure the cloned version also has proper styling
+                        const clonedPrintable = clonedDoc.querySelector('#printable-area');
+                        if (clonedPrintable) {
+                            clonedPrintable.style.width = 'auto';
+                            clonedPrintable.style.height = 'auto';
+                            clonedPrintable.style.maxWidth = 'none';
+                            clonedPrintable.style.maxHeight = 'none';
+                            clonedPrintable.style.overflow = 'visible';
+                        }
+                        
+                        const clonedGridWrapper = clonedDoc.querySelector('#crossword-grid-wrapper');
+                        if (clonedGridWrapper) {
+                            clonedGridWrapper.style.overflow = 'visible';
+                        }
+                    }
+                });
+
+                // Clean up
+                document.body.removeChild(exportWrapper);
+
+                if (format === 'png') {
+                    const link = document.createElement('a');
+                    link.download = `crossword-${isSolutionVisible ? 'solution' : 'puzzle'}.png`;
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
+                } else if (format === 'pdf') {
+                    const imgData = canvas.toDataURL('image/png');
+                    const pdf = new jsPDF({
+                        unit: 'px',
+                        format: [canvas.width, canvas.height]
+                    });
+                    
+                    pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+                    pdf.save(`crossword-${isSolutionVisible ? 'solution' : 'puzzle'}.pdf`);
+                }
+            } catch (error) {
+                console.error('Export error:', error);
+                document.body.removeChild(exportWrapper);
+                showMessage('Error generating export. Please try again.');
+            }
+        };
+
+
+        // --- Event Listeners ---
+        addWordBtn.addEventListener('click', () => addWordInput());
+        generateBtn.addEventListener('click', handleGenerate);
+        refreshBtn.addEventListener('click', handleGenerate);
+        solutionToggle.addEventListener('change', (e) => toggleSolution(e.target.checked));
+        downloadPngBtn.addEventListener('click', () => downloadAs('png'));
+        downloadPdfBtn.addEventListener('click', () => downloadAs('pdf'));
+
+        // --- Initial State ---
+        // Try to restore last saved state from localStorage
+
+        const STORAGE_KEY = 'simple-crossword-last';
+        const saveStateToStorage = (words, layout) => {
+            try {
+                const payload = { words, layout };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+            } catch (e) {
+                console.warn('Could not save crossword to localStorage', e);
+            }
+        };
+
+        const loadStateFromStorage = () => {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (!raw) return null;
+                return JSON.parse(raw);
+            } catch (e) {
+                console.warn('Could not parse crossword from localStorage', e);
+                return null;
+            }
+        };
+
+        const restoreSavedState = () => {
+            const state = loadStateFromStorage();
+            if (!state) return false;
+            // Restore words inputs if present
+            if (state.words && Array.isArray(state.words) && state.words.length) {
+                // Clear existing
+                wordListContainer.innerHTML = '';
+                state.words.forEach(w => addWordInput(w.word || w, w.clue || ''));
+            }
+
+            // Restore layout if present (attempt to render)
+            if (state.layout && state.layout.placedWords) {
+                generatedLayout = state.layout;
+                renderCrossword(generatedLayout);
+            }
+            return true;
+        };
+
+        // Restore on load
+        restoreSavedState(); 
+
+    </script>
+    <style>
+        /* Custom styles for the toggle switch */
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #48bb78;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #48bb78;
+        }
+    </style>
+</body>
+</html>
